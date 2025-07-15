@@ -1,0 +1,116 @@
+---
+title: "Practical2"
+format: html
+editor: visual
+---
+
+```{r}
+# Load Packages
+library(tidyverse)
+library(easystats)
+library(vegan)
+```
+
+```{r}
+#Load Data
+zone_data <- read.csv("data/Maroubra_zones_2025.csv")
+pool_data <- read.csv("data/Rock_pools_2025.csv")
+```
+
+## Question 1
+
+```{r}
+#Adjust species names and remove High Outliers (2 points above 100)
+zone_data <- zone_data |>
+  mutate(Species = case_when(Species == "Black snail" ~ "Nerita",
+                             Species == "Limpet" ~ "Cellana",
+                             Species == "Zebra snail" ~ "Austrocochlea",
+                             TRUE ~ Species)) |>
+  filter(Abundance_per_quadrat < 100)
+```
+
+```{r}
+#Multiple Predictors Model
+gastropod_model <- lm(Abundance_per_quadrat ~ Elevation + Species, data = zone_data)
+check_model(gastropod_model)
+
+zone_means <- estimate_means(gastropod_model, by = c("Elevation", "Species"))
+
+#Graph
+ggplot(zone_data, aes(x = Elevation, y = Abundance_per_quadrat, fill = Elevation, col = Elevation)) +
+  geom_violin(alpha = 0.3) +
+  geom_jitter(width = 0.1) +
+  geom_errorbar(data = zone_means, aes(y = Mean, ymin = CI_low, ymax = CI_high),col = "black", width = 0.2) + 
+  geom_point(data = zone_means, aes(y = Mean), col = "black") + 
+  labs(title = "Gastropod Abundance Across Elevation Zones by Species",
+       x = "Elevation",
+       y = "Abundance") + 
+  theme_classic() + 
+  facet_wrap(~Species)
+```
+
+```{r}
+#Anova
+anova(gastropod_model)
+```
+
+```{r}
+#Estimate Contrasts
+estimate_contrasts(gastropod_model, contrast = "Elevation")
+estimate_contrasts(gastropod_model, contrast = "Species")
+```
+
+## Question 2
+
+```{r}
+#Filter out high outlier
+pool_data <- pool_data |>
+  filter(red_algae <= 100)
+```
+
+```{r}
+#Permanova
+pools_vars <- select(pool_data, -class, -group_id, -plot_number, -habitat)
+habitat_model <- adonis2(pools_vars ~ habitat, data = pool_data, permutations = 999, , method = "bray")
+habitat_model
+```
+
+```{r}
+#PCA
+pools.pca <- princomp(pools_vars, cor = TRUE)
+plot(pools.pca$scores, pch = 16)
+biplot(pools.pca)
+summary(pools.pca)
+loadings(pools.pca)
+
+Pool_xy <- data.frame(pools.pca$scores)
+Pool_xy$habitat <- pool_data$habitat
+
+ggplot(Pool_xy, aes(Comp.1, Comp.2, color = habitat)) + 
+  geom_point() + 
+  theme_classic() +
+  labs(title = "PCA Ordination of Species Composition by Habitat Type")
+```
+
+```{r}
+# nMDS on species composition using Bray-Curtis
+set.seed(123)
+pools_nmds <- metaMDS(pools_vars, distance = "bray", k = 2, trymax = 100)
+
+# Check stress value
+pools_nmds$stress
+
+# Get NMDS scores (site coordinates)
+nmds_points <- as.data.frame(scores(pools_nmds))
+
+# Add habitat info
+nmds_points$habitat <- pool_data$habitat[rownames(pools_vars)]
+
+# Plot
+ggplot(nmds_points, aes(x = NMDS1, y = NMDS2, color = habitat)) +
+  geom_point(size = 3) +
+  theme_classic() +
+  labs(title = "nMDS Ordination of Species Composition by Habitat Type",
+       x = "NMDS Axis 1", y = "NMDS Axis 2")
+
+```
